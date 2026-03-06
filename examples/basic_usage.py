@@ -16,13 +16,13 @@ from sklearn.linear_model import LogisticRegression
 from hyperphoenixcv import HyperPhoenixCV
 
 # Load dataset
-print("Загрузка данных...")
+print("Loading data...")
 categories = ['alt.atheism', 'soc.religion.christian']
 newsgroups_train = fetch_20newsgroups(subset='train', categories=categories)
 X, y = newsgroups_train.data, newsgroups_train.target
 
 # Create a pipeline
-print("Создание пайплайна...")
+print("Creating pipeline...")
 pipeline = Pipeline([
     ('tfidf', TfidfVectorizer()),
     ('clf', LogisticRegression(max_iter=1000))
@@ -37,7 +37,7 @@ param_grid = {
 }
 
 # Create HyperPhoenixCV
-print("Настройка HyperPhoenixCV...")
+print("Configuring HyperPhoenixCV...")
 hp = HyperPhoenixCV(
     estimator=pipeline,
     param_grid=param_grid,
@@ -50,18 +50,18 @@ hp = HyperPhoenixCV(
 )
 
 # Run hyperparameter search
-print("\nЗапуск поиска гиперпараметров...")
+print("\nStarting hyperparameter search...")
 hp.fit(X, y)
 
 # Print results
-print("\nЛучшие параметры:", hp.best_params_)
-print("Лучший f1 score:", hp.best_score_)
+print("\nBest parameters:", hp.best_params_)
+print("Best f1 score:", hp.best_score_)
 
 # Get top 5 results
 top_5 = hp.get_top_results(5)
-print("\nТоп-5 результатов:")
+print("\nTop-5 results:")
 print(top_5)
 
 # Clean up checkpoints after successful run
 hp.clear_checkpoint()
-print("\nЧекпоинт успешно удален.")
+print("\nCheckpoint successfully deleted.")

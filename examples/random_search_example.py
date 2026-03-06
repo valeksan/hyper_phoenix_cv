@@ -16,13 +16,13 @@ from sklearn.linear_model import LogisticRegression
 from hyperphoenixcv import HyperPhoenixCV
 
 # Load dataset
-print("Загрузка данных...")
+print("Loading data...")
 categories = ['alt.atheism', 'comp.graphics']
 newsgroups_train = fetch_20newsgroups(subset='train', categories=categories)
 X, y = newsgroups_train.data, newsgroups_train.target
 
 # Create a pipeline
-print("Создание пайплайна...")
+print("Creating pipeline...")
 pipeline = Pipeline([
     ('tfidf', TfidfVectorizer()),
     ('clf', LogisticRegression(max_iter=1000, solver='saga', penalty='l1'))
@@ -44,63 +44,63 @@ param_grid = {
 total_combinations = 1
 for v in param_grid.values():
     total_combinations *= len(v)
-print(f"\nОбщее количество возможных комбинаций: {total_combinations}")
-print("Полный перебор займет слишком много времени!")
-print("Случайный поиск проверит только небольшую часть из них.\n")
+print(f"\nTotal possible combinations: {total_combinations}")
+print("Exhaustive search would take too long!")
+print("Random search will test only a small fraction of them.\n")
 
 # Create HyperPhoenixCV with random search
-print("Настройка HyperPhoenixCV с случайным поиском...")
+print("Configuring HyperPhoenixCV with random search...")
 hp = HyperPhoenixCV(
     estimator=pipeline,
     param_grid=param_grid,
     scoring='f1',
     cv=5,
     n_jobs=-1,
-    random_search=True,  # Включаем случайный поиск
-    n_iter=50,           # Количество случайных комбинаций для проверки
-    random_state=42,     # Для воспроизводимости
+    random_search=True,  # Enable random search
+    n_iter=50,           # Number of random combinations to test
+    random_state=42,     # For reproducibility
     checkpoint_path="random_search_checkpoint.pkl",
     results_csv="random_search_results.csv",
     verbose=True
 )
 
 # Run hyperparameter search
-print("\nЗапуск случайного поиска гиперпараметров...")
+print("\nStarting random hyperparameter search...")
 hp.fit(X, y)
 
 # Print results
 print("\n" + "="*50)
-print("РЕЗУЛЬТАТЫ СЛУЧАЙНОГО ПОИСКА")
+print("RANDOM SEARCH RESULTS")
 print("="*50)
-print(f"Проверено {hp.n_iter} случайных комбинаций из {total_combinations} возможных")
-print(f"Это всего {hp.n_iter/total_combinations*100:.4f}% от полного перебора!")
-print("\nЛучшие параметры:", hp.best_params_)
-print("Лучший f1 score:", hp.best_score_)
+print(f"Tested {hp.n_iter} random combinations out of {total_combinations} possible")
+print(f"That's only {hp.n_iter/total_combinations*100:.4f}% of exhaustive search!")
+print("\nBest parameters:", hp.best_params_)
+print("Best f1 score:", hp.best_score_)
 
 # Get top 5 results
 top_5 = hp.get_top_results(5)
-print("\nТоп-5 результатов:")
+print("\nTop-5 results:")
 print(top_5)
 
 # Compare with theoretical full grid search time
-estimated_full_grid_time = hp.n_iter / total_combinations * 100 * 2  # Предположим 2 минуты на комбинацию
+estimated_full_grid_time = hp.n_iter / total_combinations * 100 * 2  # Assume 2 minutes per combination
 if estimated_full_grid_time > 60:
     hours = estimated_full_grid_time / 60
-    time_str = f"{hours:.1f} часов"
+    time_str = f"{hours:.1f} hours"
 else:
-    time_str = f"{estimated_full_grid_time:.1f} минут"
+    time_str = f"{estimated_full_grid_time:.1f} minutes"
 
 print("\n" + "="*50)
-print(f"ЭКОНОМИЯ ВРЕМЕНИ")
+print(f"TIME SAVINGS")
 print("="*50)
-print(f"Полный перебор всех комбинаций занял бы примерно {time_str}")
-print(f"Случайный поиск выполнился за {hp.n_iter} комбинаций и нашел хорошие параметры!")
+print(f"Exhaustive search of all combinations would take approximately {time_str}")
+print(f"Random search completed in {hp.n_iter} combinations and found good parameters!")
 print("="*50)
 
 # Clean up checkpoints after successful run
 hp.clear_checkpoint()
-print("\nЧекпоинт успешно удален.")
+print("\nCheckpoint successfully deleted.")
 
 # Tip for users
-print("\nСовет: Для очень больших пространств параметров начните со случайного поиска,")
-print("затем используйте найденные лучшие параметры как основу для более детального поиска.")
+print("\nTip: For very large parameter spaces, start with random search,")
+print("then use the found best parameters as a basis for more detailed search.")

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 """
-HyperPhoenixCV - Возобновляемый поиск гиперпараметров с поддержкой чекпоинтов.
+HyperPhoenixCV - Resumable hyperparameter search with checkpoint support.
 
-Этот модуль предоставляет класс HyperPhoenixCV, который расширяет функциональность
-GridSearchCV из scikit-learn, добавляя поддержку чекпоинтов, случайного поиска
-и байесовской оптимизации для ускорения поиска оптимальных гиперпараметров.
+This module provides the HyperPhoenixCV class, which extends the functionality
+of scikit-learn's GridSearchCV by adding checkpoint support, random search,
+and Bayesian optimization to accelerate the search for optimal hyperparameters.
 """
 
 import os
@@ -22,11 +22,11 @@ from sklearn.utils.validation import check_is_fitted
 
 class HyperPhoenixCV(BaseEstimator):
     """
-    Возобновляемый поиск гиперпараметров с поддержкой чекпоинтов и байесовской оптимизации.
-    Поддерживает полный перебор, случайный поиск и байесовскую оптимизацию.
+    Resumable hyperparameter search with checkpoint support and Bayesian optimization.
+    Supports exhaustive grid search, random search, and Bayesian optimization.
 
-    Пример использования:
-    # Создание объекта
+    Example usage:
+    # Create an instance
     hp = HyperPhoenixCV(
         estimator=combat_pipeline,
         param_grid={
@@ -45,21 +45,21 @@ class HyperPhoenixCV(BaseEstimator):
         verbose=True
     )
 
-    # Запуск поиска
+    # Start the search
     hp.fit(X, y)
 
-    # Если процесс был прерван, запустите снова с тем же checkpoint_path:
-    hp.fit(X, y)  # Продолжит с последней сохраненной точки!
+    # If the process was interrupted, run again with the same checkpoint_path:
+    hp.fit(X, y)  # Will continue from the last saved point!
 
-    # Получение результатов
-    print("Лучшие параметры:", hp.best_params_)
-    print("Лучший скор:", hp.best_score_)
+    # Get results
+    print("Best parameters:", hp.best_params_)
+    print("Best score:", hp.best_score_)
 
-    # Топ-10 результатов
+    # Top-10 results
     top_10 = hp.get_top_results(10)
     print(top_10)
 
-    # Удалить чекпоинт вручную
+    # Manually delete checkpoint
     hp.clear_checkpoint()
     """
 
@@ -82,43 +82,42 @@ class HyperPhoenixCV(BaseEstimator):
         refit: bool = True,
     ):
         """
-        Инициализирует HyperPhoenixCV.
+        Initializes HyperPhoenixCV.
 
         Parameters:
         -----------
         estimator : sklearn estimator
-            Модель/пайплайн для подбора гиперпараметров
+            Model/pipeline for hyperparameter tuning
         param_grid : dict
-            Словарь параметров для перебора
+            Dictionary of parameters to search over
         scoring : str or list of str
-            Метрики для оценки (например, 'f1', 'accuracy' или ['f1', 'accuracy'])
+            Metrics for evaluation (e.g., 'f1', 'accuracy' or ['f1', 'accuracy'])
         cv : int
-            Количество фолдов для кросс-валидации
+            Number of folds for cross-validation
         n_jobs : int
-            Количество процессов для параллельных вычислений
+            Number of processes for parallel computation
         checkpoint_path : str
-            Путь к файлу чекпоинта
+            Path to checkpoint file
         results_csv : str
-            Путь к CSV файлу с результатами
+            Path to CSV file for results
         verbose : bool
-            Печатать ли прогресс
+            Whether to print progress
         clear_checkpoint : bool
-            Удалять ли существующий чекпоинт при инициализации
+            Whether to delete existing checkpoint on initialization
         random_search : bool
-            Использовать ли случайный перебор вместо полного
+            Whether to use random search instead of exhaustive grid search
         n_iter : int
-            Количество случайных комбинаций (если random_search=True)
+            Number of random combinations (if random_search=True)
         random_state : int, optional
-            Фиксация случайных чисел для воспроизводимости
+            Random seed for reproducibility
         use_bayesian_optimization : bool
-            Использовать ли байесовскую оптимизацию (предсказательный отбор параметров)
+            Whether to use Bayesian optimization (predictive parameter selection)
         bayesian_optimizer : sklearn regressor, optional
-            Модель, которая предсказывает, какие параметры будут лучше
-            (по умолчанию RandomForestRegressor)
+            Model that predicts which parameters will perform better
+            (defaults to RandomForestRegressor)
         refit : bool, default=True
-            Обучать ли лучшую модель на всем датасете после поиска.
-            Если True, после завершения поиска гиперпараметров будет вызван
-            `best_estimator_.fit(X, y)`.
+            Whether to refit the best model on the entire dataset after search.
+            If True, after hyperparameter search completes, `best_estimator_.fit(X, y)` will be called.
         """
         self.estimator = estimator
         self.param_grid = param_grid
@@ -138,19 +137,19 @@ class HyperPhoenixCV(BaseEstimator):
         self.label_encoders = {}
         self.refit = refit
 
-        # Удаляем чекпоинт, если указано
+        # Delete checkpoint if specified
         if clear_checkpoint and os.path.exists(checkpoint_path):
             os.remove(checkpoint_path)
             if self.verbose:
-                print(f"Удалён чекпоинт: {checkpoint_path}")
+                print(f"Deleted checkpoint: {checkpoint_path}")
 
     def _generate_param_list(self) -> list[dict]:
         """
-        Генерирует список параметров: полный перебор или случайный.
+        Generates a list of parameters: exhaustive grid search or random.
 
         Returns:
         --------
-        list[dict]: Список комбинаций параметров для тестирования.
+        list[dict]: List of parameter combinations to test.
         """
         all_params = list(ParameterGrid(self.param_grid))
 
@@ -180,25 +179,25 @@ class HyperPhoenixCV(BaseEstimator):
 
     def _load_checkpoint(self) -> list[dict]:
         """
-        Загружает результаты из чекпоинта.
+        Loads results from a checkpoint.
 
         Returns:
         --------
-        list[dict]: Список результатов из чекпоинта.
+        list[dict]: List of results from the checkpoint.
         """
         if os.path.exists(self.checkpoint_path):
             results = joblib.load(self.checkpoint_path)
             if self.verbose:
-                print(f"Загружено {len(results)} завершённых комбинаций из чекпоинта.")
-                # Выводим текущие лучшие результаты из чекпоинта
+                print(f"Loaded {len(results)} completed combinations from checkpoint.")
+                # Display current best results from checkpoint
                 if results:
                     valid_results = [r for r in results if 'error' not in r]
                     if valid_results:
-                        # Сортируем по первой метрике
+                        # Sort by the first metric
                         best_result = max(valid_results,
                                           key=lambda x: x.get(f'mean_test_{self.scoring[0]}',
                                                               float('-inf')))
-                        print(f"Текущий лучший результат из чекпоинта:")
+                        print(f"Current best result from checkpoint:")
                         score_key = f'mean_test_{self.scoring[0]}'
                         std_key = f'std_test_{self.scoring[0]}'
                         print(f"   score: {best_result.get(score_key, 0):.4f} ± "
@@ -210,33 +209,33 @@ class HyperPhoenixCV(BaseEstimator):
                                 if mean_key in best_result and std_key in best_result:
                                     print(f"   {metric}: {best_result[mean_key]:.4f} ± "
                                           f"{best_result[std_key]:.4f}")
-                        print(f"   Параметры: {best_result.get('params', {})}")
+                        print(f"   Parameters: {best_result.get('params', {})}")
             return results
         return []
 
     def _save_checkpoint(self, results: list[dict]):
         """
-        Сохраняет результаты в чекпоинт.
+        Saves results to a checkpoint.
 
         Parameters:
         -----------
         results : list[dict]
-            Список результатов для сохранения.
+            List of results to save.
         """
         joblib.dump(results, self.checkpoint_path)
 
     def _format_scores(self, cv_results: dict[str, np.ndarray]) -> dict[str, any]:
         """
-        Форматирует результаты кросс-валидации.
+        Formats cross-validation results.
 
         Parameters:
         -----------
         cv_results : dict[str, np.ndarray]
-            Результаты кросс-валидации от cross_validate.
+            Cross-validation results from cross_validate.
 
         Returns:
         --------
-        dict[str, any]: Отформатированные результаты.
+        dict[str, any]: Formatted results.
         """
         scores = {}
         for metric in self.scoring:
@@ -249,16 +248,16 @@ class HyperPhoenixCV(BaseEstimator):
 
     def _encode_params(self, params_list: list[dict]) -> np.ndarray:
         """
-        Кодирует список параметров в числовую матрицу.
+        Encodes a list of parameters into a numeric matrix.
 
         Parameters:
         -----------
         params_list : list[dict]
-            Список параметров для кодирования.
+            List of parameters to encode.
 
         Returns:
         --------
-        np.ndarray: Закодированные параметры в виде матрицы.
+        np.ndarray: Encoded parameters as a matrix.
         """
         if not params_list:
             return np.array([]).reshape(0, -1)
@@ -284,23 +283,23 @@ class HyperPhoenixCV(BaseEstimator):
         completed_results: list[dict],
     ) -> list[dict]:
         """
-        Сортирует оставшиеся параметры по предсказанной метрике (если используется байесовская оптимизация).
+        Sorts remaining parameters by predicted metric (if Bayesian optimization is used).
 
         Parameters:
         -----------
         all_param_combinations : list[dict]
-            Все возможные комбинации параметров.
+            All possible parameter combinations.
         completed_results : list[dict]
-            Уже завершённые результаты.
+            Already completed results.
 
         Returns:
         --------
-        list[dict]: Отсортированный список параметров.
+        list[dict]: Sorted list of parameters.
         """
         if not self.use_bayesian_optimization or not completed_results:
             return all_param_combinations
 
-        # Обучаем модель на завершённых результатах
+        # Train the model on completed results
         completed_params = [r['params'] for r in completed_results]
         completed_scores = [r[f'mean_test_{self.scoring[0]}'] for r in completed_results]
 
@@ -312,56 +311,56 @@ class HyperPhoenixCV(BaseEstimator):
 
         self.bayesian_optimizer.fit(X_train, y_train)
 
-        # Предсказываем для оставшихся
+        # Predict for remaining
         X_remaining = self._encode_params(all_param_combinations)
         if X_remaining.size == 0:
             return all_param_combinations
 
         predicted_scores = self.bayesian_optimizer.predict(X_remaining)
 
-        # Сортируем по убыванию предсказанного результата
+        # Sort by descending predicted score
         sorted_indices = np.argsort(predicted_scores)[::-1]
         return [all_param_combinations[i] for i in sorted_indices]
 
     def fit(self, X, y, groups=None):
         """
-        Выполняет подбор гиперпараметров с сохранением промежуточных результатов.
+        Performs hyperparameter tuning with intermediate result saving.
 
         Parameters:
         -----------
         X : array-like of shape (n_samples, n_features)
-            Обучающие данные.
+            Training data.
         y : array-like of shape (n_samples,)
-            Целевые значения.
+            Target values.
         groups : array-like of shape (n_samples,), default=None
-            Группы для групповой кросс-валидации (если используется).
+            Groups for group cross-validation (if used).
 
         Returns:
         --------
         self : object
-            Возвращает экземпляр класса.
+            Returns the instance.
         """
-        # Загружаем прогресс
+        # Load progress
         all_results = self._load_checkpoint()
 
-        # Генерируем все комбинации параметров (полный или случайный перебор)
+        # Generate all parameter combinations (exhaustive or random)
         param_list = self._generate_param_list()
         if self.verbose:
-            print(f"Всего комбинаций: {len(param_list)}")
+            print(f"Total combinations: {len(param_list)}")
 
-        # Исключаем уже обработанные
+        # Exclude already processed
         completed_params = [r['params'] for r in all_results if 'params' in r]
         remaining_params = [p for p in param_list if p not in completed_params]
         if self.verbose:
-            print(f"Осталось обработать: {len(remaining_params)}")
+            print(f"Remaining to process: {len(remaining_params)}")
 
-        # Если используется байесовская оптимизация — сортируем оставшиеся параметры по предсказанию
+        # If Bayesian optimization is used, sort remaining parameters by prediction
         if self.use_bayesian_optimization:
             remaining_params = self._suggest_next_params(remaining_params, all_results)
             if self.verbose:
-                print("Оставшиеся параметры отсортированы по предсказанной метрике.")
+                print("Remaining parameters sorted by predicted metric.")
 
-        # --- Определяем CV ---
+        # --- Determine CV ---
 
         if isinstance(self.cv, int):
             classification_metrics = {
@@ -377,12 +376,12 @@ class HyperPhoenixCV(BaseEstimator):
                 cv_splitter = KFold(n_splits=self.cv, shuffle=True, random_state=42)
         else:
             cv_splitter = self.cv
-        # --- CV определён ---
+        # --- CV determined ---
 
-        # Перебираем оставшиеся параметры
+        # Iterate over remaining parameters
         for i, params in enumerate(remaining_params, start=1):
             if self.verbose:
-                print(f"\n[{i}/{len(remaining_params)}] Тестируем: {params}")
+                print(f"\n[{i}/{len(remaining_params)}] Testing: {params}")
 
             try:
                 estimator_with_params = self.estimator.set_params(**params)
@@ -400,10 +399,10 @@ class HyperPhoenixCV(BaseEstimator):
                 }
                 all_results.append(result)
 
-                # Обновляем модель байесовской оптимизации, если используется
+                # Update Bayesian optimization model if used
                 if self.use_bayesian_optimization:
-                    # Необязательно обновлять каждый раз — можно раз в N итераций
-                    pass  # Модель обновляется при следующем вызове _suggest_next_params
+                    # Not necessary to update each time — can be done every N iterations
+                    pass  # Model is updated on the next call to _suggest_next_params
 
                 self._save_checkpoint(all_results)
 
@@ -434,21 +433,21 @@ class HyperPhoenixCV(BaseEstimator):
                                 )
                                 best_metrics.append(f"{metric}: {best_other:.4f}")
                         best_str = " | ".join(best_metrics)
-                        print(f"Сохранено. Текущие: {current_str} | Лучшие: {best_str}")
+                        print(f"Saved. Current: {current_str} | Best: {best_str}")
 
             except Exception as e:
                 if self.verbose:
-                    print(f"⚠️ Ошибка: {e}")
+                    print(f"⚠️ Error: {e}")
                 all_results.append({
                     'params': params,
                     'error': str(e)
                 })
                 self._save_checkpoint(all_results)
 
-        # Сохраняем результаты в CSV
+        # Save results to CSV
         self._save_results_to_csv(all_results)
 
-        # Сохраняем атрибуты для совместимости с GridSearchCV
+        # Save attributes for compatibility with GridSearchCV
         self.cv_results_ = self._format_cv_results(all_results)
         self.best_params_ = self._get_best_params(all_results)
         self.best_score_ = self._get_best_score(all_results)
@@ -458,88 +457,88 @@ class HyperPhoenixCV(BaseEstimator):
             self.best_estimator_.fit(X, y)
 
         if self.verbose:
-            print(f"\nВсе результаты сохранены в {self.results_csv}")
-            print(f"Лучший результат ({self.scoring[0]}): {self.best_score_:.4f}")
+            print(f"\nAll results saved to {self.results_csv}")
+            print(f"Best result ({self.scoring[0]}): {self.best_score_:.4f}")
             if self.random_search:
                 total_grid = len(list(ParameterGrid(self.param_grid)))
                 print(
-                    f"Использован случайный перебор: {self.n_iter} из {total_grid} "
-                    f"возможных комбинаций ({self.n_iter/total_grid*100:.2f}%)"
+                    f"Random search used: {self.n_iter} out of {total_grid} "
+                    f"possible combinations ({self.n_iter/total_grid*100:.2f}%)"
                 )
 
         return self
 
     def predict(self, X):
         """
-        Предсказания с помощью лучшей модели.
+        Predictions using the best model.
 
         Parameters:
         -----------
         X : array-like of shape (n_samples, n_features)
-            Данные для предсказания.
+            Data for prediction.
 
         Returns:
         --------
         y_pred : array-like of shape (n_samples,)
-            Предсказанные значения.
+            Predicted values.
         """
         check_is_fitted(self, 'best_estimator_')
         return self.best_estimator_.predict(X)
 
     def predict_proba(self, X):
         """
-        Вероятности классов (если лучшая модель поддерживает predict_proba).
+        Class probabilities (if the best model supports predict_proba).
 
         Parameters:
         -----------
         X : array-like of shape (n_samples, n_features)
-            Данные для предсказания.
+            Data for prediction.
 
         Returns:
         --------
         y_proba : array-like of shape (n_samples, n_classes)
-            Вероятности классов.
+            Class probabilities.
         """
         check_is_fitted(self, 'best_estimator_')
         return self.best_estimator_.predict_proba(X)
 
     def score(self, X, y):
         """
-        Оценка лучшей модели на данных X, y.
+        Evaluate the best model on data X, y.
 
         Parameters:
         -----------
         X : array-like of shape (n_samples, n_features)
-            Данные для оценки.
+            Data for evaluation.
         y : array-like of shape (n_samples,)
-            Истинные значения.
+            True values.
 
         Returns:
         --------
         score : float
-            Значение метрики (по умолчанию используется метрика scoring[0]).
+            Metric value (default uses scoring[0]).
         """
         check_is_fitted(self, 'best_estimator_')
         return self.best_estimator_.score(X, y)
 
     def _format_cv_results(self, results: list[dict]) -> dict[str, np.ndarray]:
         """
-        Форматирует результаты в формат, совместимый с GridSearchCV.
+        Formats results into a GridSearchCV-compatible format.
 
         Parameters:
         -----------
         results : list[dict]
-            Список результатов.
+            List of results.
 
         Returns:
         --------
-        dict[str, np.ndarray]: Форматированные результаты.
+        dict[str, np.ndarray]: Formatted results.
         """
         valid_results = [r for r in results if 'error' not in r]
         if not valid_results:
             return {}
 
-        # Создаём словарь с результатами
+        # Create a dictionary with results
         cv_results = {'params': [r['params'] for r in valid_results]}
 
         for metric in self.scoring:
@@ -553,38 +552,38 @@ class HyperPhoenixCV(BaseEstimator):
 
     def _get_best_params(self, results: list[dict]) -> dict:
         """
-        Получает лучшие параметры.
+        Retrieves the best parameters.
 
         Parameters:
         -----------
         results : list[dict]
-            Список результатов.
+            List of results.
 
         Returns:
         --------
-        dict: Лучшие параметры.
+        dict: Best parameters.
         """
         valid_results = [r for r in results if 'error' not in r]
         if not valid_results:
             return {}
 
-        # Сортируем по первой метрике
+        # Sort by the first metric
         best_result = max(valid_results,
                          key=lambda x: x[f'mean_test_{self.scoring[0]}'])
         return best_result['params']
 
     def _get_best_score(self, results: list[dict]) -> float:
         """
-        Получает лучший скор.
+        Retrieves the best score.
 
         Parameters:
         -----------
         results : list[dict]
-            Список результатов.
+            List of results.
 
         Returns:
         --------
-        float: Лучший скор.
+        float: Best score.
         """
         valid_results = [r for r in results if 'error' not in r]
         if not valid_results:
@@ -596,12 +595,12 @@ class HyperPhoenixCV(BaseEstimator):
 
     def _save_results_to_csv(self, results: list[dict]):
         """
-        Сохраняет результаты в CSV.
+        Saves results to CSV.
 
         Parameters:
         -----------
         results : list[dict]
-            Список результатов для сохранения.
+            List of results to save.
         """
         valid_results = [r for r in results if 'error' not in r]
         if not valid_results:
@@ -609,13 +608,13 @@ class HyperPhoenixCV(BaseEstimator):
             df.to_csv(self.results_csv, index=False)
             return
 
-        # Формируем DataFrame
+        # Build DataFrame
         rows = []
         for r in valid_results:
             row = {}
-            # Добавляем параметры как отдельные колонки
+            # Add parameters as separate columns
             row.update(r['params'])
-            # Добавляем метрики
+            # Add metrics
             for metric in self.scoring:
                 mean_key = f'mean_test_{metric}'
                 std_key = f'std_test_{metric}'
@@ -630,21 +629,21 @@ class HyperPhoenixCV(BaseEstimator):
 
     def get_top_results(self, n: int = 10) -> pd.DataFrame:
         """
-        Возвращает топ-N результатов.
+        Returns top‑N results.
 
         Parameters:
         -----------
         n : int
-            Количество топ результатов для возврата.
+            Number of top results to return.
 
         Returns:
         --------
-        pd.DataFrame: Топ-N результатов.
+        pd.DataFrame: Top‑N results.
         """
         if not hasattr(self, 'cv_results_') or not self.cv_results_:
             return pd.DataFrame()
 
-        # Создаём DataFrame из результатов
+        # Create DataFrame from results
         results = []
         for i in range(len(self.cv_results_['params'])):
             row = {}
@@ -655,55 +654,55 @@ class HyperPhoenixCV(BaseEstimator):
             results.append(row)
 
         df = pd.DataFrame(results)
-        # Сортируем по первой метрике
+        # Sort by the first metric
         df = df.sort_values(f'mean_test_{self.scoring[0]}', ascending=False)
         return df.head(n)
 
     def clear_checkpoint(self):
         """
-        Удаляет файл чекпоинта.
+        Deletes the checkpoint file.
         """
         if os.path.exists(self.checkpoint_path):
             os.remove(self.checkpoint_path)
             if self.verbose:
-                print(f"Удалён чекпоинт: {self.checkpoint_path}")
+                print(f"Deleted checkpoint: {self.checkpoint_path}")
 
     def load_results_from_checkpoint(self, n: int = 10) -> pd.DataFrame:
         """
-        Загружает результаты из чекпоинта и возвращает топ-N.
-        Полезно, если fit() был прерван и CSV не был создан.
+        Loads results from a checkpoint and returns top‑N.
+        Useful when fit() was interrupted and CSV was not created.
 
         Parameters:
         -----------
         n : int
-            Количество топ результатов для возврата
+            Number of top results to return
 
         Returns:
         --------
         pd.DataFrame
-            Топ-N результатов из чекпоинта
+            Top‑N results from the checkpoint
         """
         if not os.path.exists(self.checkpoint_path):
             if self.verbose:
-                print(f"⚠️ Чекпоинт {self.checkpoint_path} не найден.")
+                print(f"⚠️ Checkpoint {self.checkpoint_path} not found.")
             return pd.DataFrame()
 
-        # Загружаем результаты из чекпоинта
+        # Load results from checkpoint
         all_results = self._load_checkpoint()
         valid_results = [r for r in all_results if 'error' not in r]
 
         if not valid_results:
             if self.verbose:
-                print("⚠️ В чекпоинте нет валидных результатов.")
+                print("⚠️ No valid results in checkpoint.")
             return pd.DataFrame()
 
-        # Формируем DataFrame
+        # Build DataFrame
         rows = []
         for r in valid_results:
             row = {}
-            # Добавляем параметры как отдельные колонки
+            # Add parameters as separate columns
             row.update(r['params'])
-            # Добавляем метрики
+            # Add metrics
             for metric in self.scoring:
                 mean_key = f'mean_test_{metric}'
                 std_key = f'std_test_{metric}'
@@ -715,11 +714,11 @@ class HyperPhoenixCV(BaseEstimator):
 
         df = pd.DataFrame(rows)
 
-        # Сортируем по первой метрике (та, по которой ищем лучшее)
+        # Sort by the first metric (the one we optimize for)
         df = df.sort_values(f'mean_test_{self.scoring[0]}', ascending=False)
 
         if self.verbose:
-            print(f"Загружено {len(df)} валидных результатов из чекпоинта.")
-            print(f"Лучший {self.scoring[0]}: {df.iloc[0][f'mean_test_{self.scoring[0]}']:.4f}")
+            print(f"Loaded {len(df)} valid results from checkpoint.")
+            print(f"Best {self.scoring[0]}: {df.iloc[0][f'mean_test_{self.scoring[0]}']:.4f}")
 
         return df.head(n)

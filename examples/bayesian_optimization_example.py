@@ -18,13 +18,13 @@ from hyperphoenixcv import HyperPhoenixCV
 from sklearn.ensemble import RandomForestRegressor
 
 # Load dataset
-print("Загрузка данных...")
+print("Loading data...")
 categories = ['alt.atheism', 'sci.space', 'comp.graphics', 'rec.sport.baseball']
 newsgroups_train = fetch_20newsgroups(subset='train', categories=categories)
 X, y = newsgroups_train.data, newsgroups_train.target
 
 # Create a pipeline
-print("Создание пайплайна...")
+print("Creating pipeline...")
 pipeline = Pipeline([
     ('tfidf', TfidfVectorizer()),
     ('clf', LogisticRegression(max_iter=1000))
@@ -42,7 +42,7 @@ param_grid = {
 custom_optimizer = RandomForestRegressor(n_estimators=50, random_state=42, n_jobs=-1)
 
 # Create HyperPhoenixCV with Bayesian optimization
-print("\nНастройка HyperPhoenixCV с байесовской оптимизацией...")
+print("\nConfiguring HyperPhoenixCV with Bayesian optimization...")
 hp_bayesian = HyperPhoenixCV(
     estimator=pipeline,
     param_grid=param_grid,
@@ -58,9 +58,9 @@ hp_bayesian = HyperPhoenixCV(
 
 # Run Bayesian-optimized hyperparameter search
 print("\n" + "="*60)
-print("ЗАПУСК ПОИСКА С БАЙЕСОВСКОЙ ОПТИМИЗАЦИЕЙ")
-print("Байесовская оптимизация анализирует предыдущие результаты")
-print("и предсказывает, какие параметры могут дать лучшие результаты")
+print("RUNNING SEARCH WITH BAYESIAN OPTIMIZATION")
+print("Bayesian optimization analyzes previous results")
+print("and predicts which parameters may yield better results")
 print("="*60)
 hp_bayesian.fit(X, y)
 
@@ -69,17 +69,17 @@ bayesian_best_score = hp_bayesian.best_score_
 bayesian_top_results = hp_bayesian.get_top_results(5)
 
 print("\n" + "="*50)
-print("РЕЗУЛЬТАТЫ БАЙЕСОВСКОЙ ОПТИМИЗАЦИИ")
+print("BAYESIAN OPTIMIZATION RESULTS")
 print("="*50)
-print(f"Лучший f1_macro score: {bayesian_best_score:.4f}")
-print("\nТоп-5 комбинаций параметров:")
+print(f"Best f1_macro score: {bayesian_best_score:.4f}")
+print("\nTop-5 parameter combinations:")
 print(bayesian_top_results[['tfidf__max_features', 'tfidf__ngram_range', 
                            'clf__C', 'clf__penalty', 'mean_test_f1_macro']])
 
 # For comparison, let's run random search with the same number of iterations
 print("\n" + "="*50)
-print("ЗАПУСК СЛУЧАЙНОГО ПОИСКА ДЛЯ СРАВНЕНИЯ")
-print(f"Будет выполнено {len(hp_bayesian.cv_results_['params'])} итераций")
+print("RUNNING RANDOM SEARCH FOR COMPARISON")
+print(f"Will perform {len(hp_bayesian.cv_results_['params'])} iterations")
 print("="*50)
 
 hp_random = HyperPhoenixCV(
@@ -99,20 +99,20 @@ hp_random.fit(X, y)
 random_best_score = hp_random.best_score_
 
 print("\n" + "="*50)
-print("СРАВНЕНИЕ РЕЗУЛЬТАТОВ")
+print("RESULTS COMPARISON")
 print("="*50)
-print(f"Байесовская оптимизация: {bayesian_best_score:.4f}")
-print(f"Случайный поиск: {random_best_score:.4f}")
+print(f"Bayesian optimization: {bayesian_best_score:.4f}")
+print(f"Random search: {random_best_score:.4f}")
 
 if bayesian_best_score > random_best_score:
-    print("✅ Байесовская оптимизация превзошла случайный поиск!")
-    print(f"  Улучшение: {(bayesian_best_score - random_best_score) * 100:.2f} процентных пунктов")
+    print("✅ Bayesian optimization outperformed random search!")
+    print(f"  Improvement: {(bayesian_best_score - random_best_score) * 100:.2f} percentage points")
 else:
-    print("⚠️ Случайный поиск оказался лучше в этом запуске")
-    print("  Это может происходить на ранних этапах оптимизации")
+    print("⚠️ Random search performed better in this run")
+    print("  This can happen in early stages of optimization")
 
 # Visualize the optimization process
-print("\nСоздание графика прогресса оптимизации...")
+print("\nCreating optimization progress plot...")
 try:
     # Get scores in order of evaluation
     bayesian_scores = [r[f'mean_test_f1_macro'] for r in hp_bayesian.cv_results_['params']]
@@ -123,17 +123,17 @@ try:
     random_cummax = np.maximum.accumulate(random_scores)
     
     plt.figure(figsize=(10, 6))
-    plt.plot(bayesian_cummax, 'b-', label='Байесовская оптимизация', linewidth=2)
-    plt.plot(random_cummax, 'r--', label='Случайный поиск', linewidth=2)
+    plt.plot(bayesian_cummax, 'b-', label='Bayesian optimization', linewidth=2)
+    plt.plot(random_cummax, 'r--', label='Random search', linewidth=2)
     
-    plt.xlabel('Количество оцененных комбинаций')
-    plt.ylabel('Лучший F1-макро скор')
-    plt.title('Прогресс поиска гиперпараметров')
+    plt.xlabel('Number of evaluated combinations')
+    plt.ylabel('Best F1-macro score')
+    plt.title('Hyperparameter search progress')
     plt.legend()
     plt.grid(True, linestyle='--', alpha=0.7)
     
     plt.savefig('optimization_progress.png', dpi=300, bbox_inches='tight')
-    print("График сохранен как 'optimization_progress.png'")
+    print("Plot saved as 'optimization_progress.png'")
     
     # Show plot in notebook environment (optional)
     try:
@@ -144,29 +144,29 @@ try:
         pass
         
 except Exception as e:
-    print(f"⚠️ Не удалось создать график: {e}")
+    print(f"⚠️ Failed to create plot: {e}")
 
 # Insights and recommendations
 print("\n" + "="*50)
-print("ИНСАЙТЫ И РЕКОМЕНДАЦИИ")
+print("INSIGHTS AND RECOMMENDATIONS")
 print("="*50)
-print("Как работает байесовская оптимизация в HyperPhoenixCV:")
-print("1. На первых итерациях исследует пространство параметров")
-print("2. По мере накопления данных строит модель зависимости параметров от метрики")
-print("3. Использует эту модель для выбора наиболее перспективных параметров")
-print("4. Со временем фокусируется на самых многообещающих областях пространства")
+print("How Bayesian optimization works in HyperPhoenixCV:")
+print("1. Explores parameter space in early iterations")
+print("2. Builds a model of parameter-metric relationship as data accumulates")
+print("3. Uses this model to select the most promising parameters")
+print("4. Over time focuses on the most promising regions of the space")
 
-print("\nРекомендации по использованию:")
-print("- Используйте байесовскую оптимизацию, когда пространство параметров велико")
-print("- Для небольших пространств параметров может быть достаточно полного перебора")
-print("- Сочетайте с чекпоинтами для продолжения поиска после прерываний")
-print("- Настройте bayesian_optimizer под свои задачи (количество деревьев и т.д.)")
+print("\nUsage recommendations:")
+print("- Use Bayesian optimization when parameter space is large")
+print("- For small parameter spaces, exhaustive search may suffice")
+print("- Combine with checkpoints to resume search after interruptions")
+print("- Customize bayesian_optimizer for your tasks (number of trees, etc.)")
 
 # Clean up checkpoints
 hp_bayesian.clear_checkpoint()
-print("\nЧекпоинт байесовской оптимизации успешно удален.")
+print("\nBayesian optimization checkpoint successfully deleted.")
 
 # Tip for users
-print("\nСовет: Байесовская оптимизация особенно эффективна, когда оценка одной")
-print("комбинации параметров занимает много времени (например, обучение глубоких моделей).")
-print("В таких случаях экономия даже нескольких итераций может сэкономить часы вычислений!")
+print("\nTip: Bayesian optimization is especially effective when evaluating a single")
+print("parameter combination takes a long time (e.g., training deep models).")
+print("In such cases, saving even a few iterations can save hours of computation!")
