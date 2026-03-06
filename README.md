@@ -1,5 +1,10 @@
 # HyperPhoenixCV 🐦‍🔥
 
+![CI](https://github.com/valeksan/hyperphoenixcv/actions/workflows/ci.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.8%20|%203.9%20|%203.10%20|%203.11%20|%203.12-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![PyPI](https://img.shields.io/pypi/v/hyperphoenixcv)
+
 > *"Rise from the ashes of interrupted experiments"*
 
 HyperPhoenixCV is a smart hyperparameter tuning tool that, like the mythical phoenix, **resumes after interruptions** and continues searching for optimal solutions. Never lose hours of computation due to unexpected stops again!
