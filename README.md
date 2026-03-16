@@ -44,6 +44,9 @@ pip install -e .
 The name **HyperPhoenixCV** refers to the mythical phoenix – a bird that rises from its ashes. In the same way, your hyperparameter search can "rise again" after an interruption, continuing from the last saved checkpoint instead of starting over from scratch.
 
 The "CV" in the name highlights the library's focus on cross‑validation and machine‑learning workflows.
+![HyperPhoenixCV Workflow](img_1773657268389.png)
+
+*Diagram illustrating the resumable search process.*
 
 ### How It Differs from Plain `GridSearchCV`
 
