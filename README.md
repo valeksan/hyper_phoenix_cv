@@ -3,7 +3,7 @@
 ![CI](https://github.com/valeksan/hyperphoenixcv/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.8%20|%203.9%20|%203.10%20|%203.11%20|%203.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![PyPI](https://img.shields.io/pypi/v/hyperphoenixcv?v=0.2.1)
+![PyPI](https://img.shields.io/pypi/v/hyperphoenixcv?v=0.3.0)
 
 > *"Rise from the ashes of interrupted experiments"*
 
@@ -19,6 +19,9 @@ HyperPhoenixCV is a smart hyperparameter tuning library that, like the mythical 
 - **📊 Multi‑metric evaluation** – Score using multiple metrics (F1, accuracy, precision, etc.) simultaneously.
 - **💾 Automatic checkpointing** – Results are saved automatically to pickle files and CSV.
 - **🔌 Scikit‑learn compatible** – Seamlessly integrates with the scikit‑learn ecosystem.
+- **⚡ Performance optimizations** – Parallel execution with `pre_dispatch` and graceful error handling with `error_score`.
+- **⏱️ Early stopping** – Stop search early if no improvement for a given number of iterations (`early_stopping_patience`).
+- **📈 Best index attribute** – Access `best_index_` for compatibility with `GridSearchCV`.
 
 ## 🚀 Installation
 
@@ -51,6 +54,9 @@ The "CV" in the name highlights the library's focus on cross‑validation and ma
 | **Multi‑metric** | Single metric at a time | ✅ Multiple metrics simultaneously |
 | **Checkpointing** | Manual saving required | ✅ Automatic pickle & CSV export |
 | **Progress tracking** | Limited | ✅ Verbose logs & intermediate results |
+| **Early stopping** | Not supported | ✅ Configurable patience |
+| **Error handling** | Raises exception | ✅ Configurable `error_score` (e.g., `np.nan`) |
+| **Parallel dispatch** | Basic | ✅ `pre_dispatch` for better resource management |
 
 ## 🛠️ Quick Start
 
@@ -87,6 +93,7 @@ hp.fit(X, y)
 
 print("Best parameters:", hp.best_params_)
 print("Best score:", hp.best_score_)
+print("Best index:", hp.best_index_)  # New attribute
 
 # Get top‑5 results
 top_results = hp.get_top_results(5)
@@ -154,6 +161,34 @@ hp = HyperPhoenixCV(
 )
 ```
 
+### Performance & Error Handling
+
+Control parallel execution and error behavior:
+
+```python
+hp = HyperPhoenixCV(
+    estimator=model,
+    param_grid=param_grid,
+    n_jobs=4,                # Use 4 CPU cores
+    pre_dispatch='2*n_jobs', # Limit number of simultaneously dispatched jobs
+    error_score=np.nan,      # Assign NaN to failed evaluations instead of raising
+    verbose=True
+)
+```
+
+### Early Stopping
+
+Stop the search early if no improvement is observed for a given number of iterations:
+
+```python
+hp = HyperPhoenixCV(
+    estimator=model,
+    param_grid=param_grid,
+    early_stopping_patience=5,  # Stop after 5 iterations without improvement
+    verbose=True
+)
+```
+
 ### Custom Cross‑Validation Splitter
 
 HyperPhoenixCV supports any cross‑validation splitter that follows the scikit‑learn interface (e.g., `TimeSeriesSplit`, `GroupKFold`, `StratifiedKFold`). You can pass a splitter object directly to the `cv` parameter:
@@ -183,6 +218,41 @@ hp.fit(X, y, groups=groups)
 ```
 
 See the full example: [examples/custom_cv_example.py](examples/custom_cv_example.py)
+
+## 📖 API Reference
+
+### HyperPhoenixCV
+
+Main class for hyperparameter search.
+
+**Parameters** (most important):
+
+- `estimator`: scikit‑learn compatible estimator.
+- `param_grid`: dict or list of dicts defining the search space.
+- `scoring`: metric(s) to evaluate (string, callable, list, or dict).
+- `cv`: int, cross‑validation splitter, or iterable (default=5).
+- `n_jobs`: number of parallel jobs (default=1).
+- `pre_dispatch`: controls number of dispatched jobs (default='2*n_jobs').
+- `error_score`: value to assign when an error occurs (default=np.nan).
+- `early_stopping_patience`: number of iterations without improvement to stop early (default=None, disabled).
+- `checkpoint_path`: path to pickle file for checkpointing (default=None).
+- `results_csv`: path to CSV file for saving results (default=None).
+- `verbose`: verbosity level (default=False).
+
+**Attributes after fitting**:
+
+- `best_params_`: dict of best parameters.
+- `best_score_`: best cross‑validation score.
+- `best_index_`: index of the best candidate in the results.
+- `cv_results_`: dict of detailed results (like `GridSearchCV`).
+- `top_results_`: DataFrame with top‑N results.
+
+**Methods**:
+
+- `fit(X, y, **fit_params)`: run the search (resumes from checkpoint if available).
+- `get_top_results(n=10)`: return a DataFrame with top‑N candidates.
+
+For a complete list of parameters and methods, see the source code or use `help(HyperPhoenixCV)`.
 
 ## 🤝 Contributing
 

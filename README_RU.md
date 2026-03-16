@@ -3,7 +3,7 @@
 ![CI](https://github.com/valeksan/hyperphoenixcv/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.8%20|%203.9%20|%203.10%20|%203.11%20|%203.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![PyPI](https://img.shields.io/pypi/v/hyperphoenixcv?v=0.2.1)
+![PyPI](https://img.shields.io/pypi/v/hyperphoenixcv?v=0.3.0)
 
 > *"Возрождайтесь из пепла прерванных экспериментов"*
 
@@ -19,6 +19,9 @@ HyperPhoenixCV — это умная библиотека для подбора 
 - **📊 Оценка по нескольким метрикам** — Одновременное использование нескольких метрик (F1, accuracy, precision и др.).
 - **💾 Автоматическое сохранение** — Результаты автоматически сохраняются в pickle-файлы и CSV.
 - **🔌 Совместимость с Scikit‑learn** — Бесшовная интеграция с экосистемой scikit‑learn.
+- **⚡ Оптимизация производительности** — Параллельное выполнение с `pre_dispatch` и обработка ошибок через `error_score`.
+- **⏱️ Ранняя остановка** — Остановить поиск досрочно, если улучшений нет заданное число итераций (`early_stopping_patience`).
+- **📈 Атрибут best_index_** — Доступ к `best_index_` для совместимости с `GridSearchCV`.
 
 ## 🚀 Установка
 
@@ -51,6 +54,9 @@ pip install -e .
 | **Мультиметричность** | Одна метрика за раз | ✅ Несколько метрик одновременно |
 | **Сохранение результатов** | Требуется ручное сохранение | ✅ Автоматическое сохранение в pickle и CSV |
 | **Отслеживание прогресса** | Ограничено | ✅ Подробные логи и промежуточные результаты |
+| **Ранняя остановка** | Не поддерживается | ✅ Настраиваемый patience |
+| **Обработка ошибок** | Выбрасывает исключение | ✅ Настраиваемый `error_score` (например, `np.nan`) |
+| **Управление параллелизмом** | Базовое | ✅ `pre_dispatch` для лучшего управления ресурсами |
 
 ## 🛠️ Быстрый старт
 
@@ -87,6 +93,7 @@ hp.fit(X, y)
 
 print("Лучшие параметры:", hp.best_params_)
 print("Лучшая точность:", hp.best_score_)
+print("Индекс лучшего кандидата:", hp.best_index_)  # Новый атрибут
 
 # Получаем топ‑5 результатов
 top_results = hp.get_top_results(5)
@@ -153,6 +160,101 @@ hp = HyperPhoenixCV(
     results_csv='experiment_results.csv'
 )
 ```
+
+### Производительность и обработка ошибок
+
+Управляйте параллельным выполнением и поведением при ошибках:
+
+```python
+import numpy as np
+
+hp = HyperPhoenixCV(
+    estimator=model,
+    param_grid=param_grid,
+    n_jobs=4,                # Использовать 4 ядра CPU
+    pre_dispatch='2*n_jobs', # Ограничить количество одновременно запущенных задач
+    error_score=np.nan,      # Присваивать NaN при ошибках вместо исключения
+    verbose=True
+)
+```
+
+### Ранняя остановка
+
+Остановите поиск досрочно, если улучшений не наблюдается заданное число итераций:
+
+```python
+hp = HyperPhoenixCV(
+    estimator=model,
+    param_grid=param_grid,
+    early_stopping_patience=5,  # Остановить после 5 итераций без улучшений
+    verbose=True
+)
+```
+
+### Пользовательские сплиттеры кросс‑валидации
+
+HyperPhoenixCV поддерживает любой сплиттер кросс‑валидации, совместимый с scikit‑learn (например, `TimeSeriesSplit`, `GroupKFold`, `StratifiedKFold`). Вы можете передать объект сплиттера напрямую в параметр `cv`:
+
+```python
+from sklearn.model_selection import TimeSeriesSplit, GroupKFold
+
+# Кросс‑валидация для временных рядов
+ts_cv = TimeSeriesSplit(n_splits=5)
+hp = HyperPhoenixCV(
+    estimator=model,
+    param_grid=param_grid,
+    cv=ts_cv,          # Использовать объект сплиттера
+    scoring='accuracy'
+)
+
+# Групповая кросс‑валидация
+group_cv = GroupKFold(n_splits=5)
+hp = HyperPhoenixCV(
+    estimator=model,
+    param_grid=param_grid,
+    cv=group_cv,
+    scoring='accuracy'
+)
+# Затем вызовите fit с параметром groups
+hp.fit(X, y, groups=groups)
+```
+
+Полный пример: [examples/custom_cv_example.py](examples/custom_cv_example.py)
+
+## 📖 Справка по API
+
+### HyperPhoenixCV
+
+Основной класс для поиска гиперпараметров.
+
+**Параметры** (наиболее важные):
+
+- `estimator`: scikit‑learn совместимый estimator.
+- `param_grid`: dict или list of dicts, определяющий пространство поиска.
+- `scoring`: метрика(и) для оценки (строка, функция, список или словарь).
+- `cv`: int, сплиттер кросс‑валидации или итерируемый объект (по умолчанию=5).
+- `n_jobs`: количество параллельных jobs (по умолчанию=1).
+- `pre_dispatch`: управляет количеством одновременно запускаемых jobs (по умолчанию='2*n_jobs').
+- `error_score`: значение, присваиваемое при ошибке (по умолчанию=np.nan).
+- `early_stopping_patience`: количество итераций без улучшений для досрочной остановки (по умолчанию=None, отключено).
+- `checkpoint_path`: путь к pickle‑файлу для чекпоинтинга (по умолчанию=None).
+- `results_csv`: путь к CSV‑файлу для сохранения результатов (по умолчанию=None).
+- `verbose`: уровень детализации (по умолчанию=False).
+
+**Атрибуты после обучения**:
+
+- `best_params_`: dict лучших параметров.
+- `best_score_`: лучшее значение кросс‑валидационной метрики.
+- `best_index_`: индекс лучшего кандидата в результатах.
+- `cv_results_`: dict с детальными результатами (как в `GridSearchCV`).
+- `top_results_`: DataFrame с топ‑N результатами.
+
+**Методы**:
+
+- `fit(X, y, **fit_params)`: запустить поиск (возобновляет с чекпоинта, если доступен).
+- `get_top_results(n=10)`: вернуть DataFrame с топ‑N кандидатами.
+
+Полный список параметров и методов см. в исходном коде или используйте `help(HyperPhoenixCV)`.
 
 ## 🤝 Участие в разработке
 
