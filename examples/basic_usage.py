@@ -25,7 +25,7 @@ X, y = newsgroups_train.data, newsgroups_train.target
 print("Creating pipeline...")
 pipeline = Pipeline([
     ('tfidf', TfidfVectorizer()),
-    ('clf', LogisticRegression(max_iter=1000))
+    ('clf', LogisticRegression(max_iter=1000, solver='liblinear'))
 ])
 
 # Define parameter grid

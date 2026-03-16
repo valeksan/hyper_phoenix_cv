@@ -9,16 +9,18 @@ and Bayesian optimization to accelerate the search for optimal hyperparameters.
 """
 
 import os
-import random
 import numpy as np
-import joblib
 import pandas as pd
+from typing import Union
 from sklearn.base import BaseEstimator
-from sklearn.model_selection import ParameterGrid, cross_validate, StratifiedKFold, KFold
-from sklearn.preprocessing import LabelEncoder
-from sklearn.ensemble import RandomForestRegressor
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.validation import check_is_fitted
+
+from .search_strategies import create_search_strategy
+from .checkpoint import CheckpointManager
+from .result_manager import ResultManager
+from .cv_executor import CVExecutor
+
 
 class HyperPhoenixCV(BaseEstimator):
     """
@@ -80,6 +82,9 @@ class HyperPhoenixCV(BaseEstimator):
         use_bayesian_optimization: bool = False,
         bayesian_optimizer = None,
         refit: bool = True,
+        pre_dispatch: str = '2*n_jobs',
+        error_score: Union[str, float] = 'raise',
+        early_stopping_patience: int | None = None,
     ):
         """
         Initializes HyperPhoenixCV.
@@ -118,6 +123,16 @@ class HyperPhoenixCV(BaseEstimator):
         refit : bool, default=True
             Whether to refit the best model on the entire dataset after search.
             If True, after hyperparameter search completes, `best_estimator_.fit(X, y)` will be called.
+        pre_dispatch : str, default='2*n_jobs'
+            Controls the number of jobs that get dispatched during parallel
+            execution. See `sklearn.model_selection.cross_validate`.
+        error_score : 'raise' or numeric, default='raise'
+            Value to assign to the score if an error occurs in the estimator.
+            If 'raise', the error is raised.
+        early_stopping_patience : int, optional
+            If set, stop the search after this many iterations without improvement
+            in the primary metric (scoring[0]). Useful for random search and
+            Bayesian optimization to avoid unnecessary evaluations.
         """
         self.estimator = estimator
         self.param_grid = param_grid
@@ -131,196 +146,96 @@ class HyperPhoenixCV(BaseEstimator):
         self.n_iter = n_iter
         self.random_state = random_state
         self.use_bayesian_optimization = use_bayesian_optimization
-        self.bayesian_optimizer = (
-            bayesian_optimizer or RandomForestRegressor(n_estimators=20, random_state=42)
-        )
-        self.label_encoders = {}
+        self.bayesian_optimizer = bayesian_optimizer
         self.refit = refit
+        self.pre_dispatch = pre_dispatch
+        self.error_score = error_score
+        self.early_stopping_patience = early_stopping_patience
+
+        # Create components
+        self.search_strategy = create_search_strategy(
+            param_grid=param_grid,
+            random_search=random_search,
+            use_bayesian_optimization=use_bayesian_optimization,
+            n_iter=n_iter,
+            random_state=random_state,
+            bayesian_optimizer=bayesian_optimizer,
+            scoring=self.scoring[0] if self.scoring else 'f1',
+        )
+        self.checkpoint_manager = CheckpointManager(
+            checkpoint_path=checkpoint_path,
+            verbose=verbose,
+        )
+        self.result_manager = ResultManager(
+            scoring=self.scoring,
+            results_csv=results_csv,
+        )
+        self.cv_executor = CVExecutor(
+            cv=cv,
+            scoring=self.scoring,
+            n_jobs=n_jobs,
+            verbose=verbose,
+            pre_dispatch=pre_dispatch,
+            error_score=error_score,
+        )
 
         # Delete checkpoint if specified
-        if clear_checkpoint and os.path.exists(checkpoint_path):
-            os.remove(checkpoint_path)
-            if self.verbose:
-                print(f"Deleted checkpoint: {checkpoint_path}")
+        if clear_checkpoint:
+            self.checkpoint_manager.clear()
 
-    def _generate_param_list(self) -> list[dict]:
+        # Attributes that will be set after fit
+        self.best_params_ = {}
+        self.best_score_ = 0.0
+        self.best_estimator_ = None
+        self.cv_results_ = {}
+        self.best_index_ = None
+
+    def _format_metric_string(self, result: dict) -> str:
         """
-        Generates a list of parameters: exhaustive grid search or random.
-
-        Returns:
-        --------
-        list[dict]: List of parameter combinations to test.
-        """
-        all_params = list(ParameterGrid(self.param_grid))
-
-        if self.random_search:
-            if self.random_state is not None:
-                random.seed(self.random_state)
-
-            if len(all_params) <= self.n_iter:
-                if self.verbose:
-                    print(
-                        f"Всего комбинаций ({len(all_params)}) <= n_iter ({self.n_iter}). "
-                        f"Используем все."
-                    )
-                return all_params
-            # else is unnecessary after return
-            selected_params = random.sample(all_params, self.n_iter)
-            if self.verbose:
-                print(
-                    f"Выбрано {len(selected_params)} случайных комбинаций "
-                    f"из {len(all_params)} возможных."
-                )
-            return selected_params
-        else:
-            if self.verbose:
-                print(f"Полный перебор: {len(all_params)} комбинаций.")
-            return all_params
-
-    def _load_checkpoint(self) -> list[dict]:
-        """
-        Loads results from a checkpoint.
-
-        Returns:
-        --------
-        list[dict]: List of results from the checkpoint.
-        """
-        if os.path.exists(self.checkpoint_path):
-            results = joblib.load(self.checkpoint_path)
-            if self.verbose:
-                print(f"Loaded {len(results)} completed combinations from checkpoint.")
-                # Display current best results from checkpoint
-                if results:
-                    valid_results = [r for r in results if 'error' not in r]
-                    if valid_results:
-                        # Sort by the first metric
-                        best_result = max(valid_results,
-                                          key=lambda x: x.get(f'mean_test_{self.scoring[0]}',
-                                                              float('-inf')))
-                        print(f"Current best result from checkpoint:")
-                        score_key = f'mean_test_{self.scoring[0]}'
-                        std_key = f'std_test_{self.scoring[0]}'
-                        print(f"   score: {best_result.get(score_key, 0):.4f} ± "
-                              f"{best_result.get(std_key, 0):.4f}")
-                        if len(self.scoring) > 1:
-                            for metric in self.scoring[1:]:
-                                mean_key = f'mean_test_{metric}'
-                                std_key = f'std_test_{metric}'
-                                if mean_key in best_result and std_key in best_result:
-                                    print(f"   {metric}: {best_result[mean_key]:.4f} ± "
-                                          f"{best_result[std_key]:.4f}")
-                        print(f"   Parameters: {best_result.get('params', {})}")
-            return results
-        return []
-
-    def _save_checkpoint(self, results: list[dict]):
-        """
-        Saves results to a checkpoint.
+        Format metrics from a result dictionary into a readable string.
 
         Parameters:
         -----------
-        results : list[dict]
-            List of results to save.
-        """
-        joblib.dump(results, self.checkpoint_path)
-
-    def _format_scores(self, cv_results: dict[str, np.ndarray]) -> dict[str, any]:
-        """
-        Formats cross-validation results.
-
-        Parameters:
-        -----------
-        cv_results : dict[str, np.ndarray]
-            Cross-validation results from cross_validate.
+        result : dict
+            Result dictionary containing mean_test_* and std_test_* keys.
 
         Returns:
         --------
-        dict[str, any]: Formatted results.
+        str
+            Formatted string like "f1: 0.85 ± 0.02 | accuracy: 0.90 ± 0.01"
         """
-        scores = {}
+        metrics = []
         for metric in self.scoring:
-            test_metric = f'test_{metric}'
-            if test_metric in cv_results:
-                scores[f'mean_test_{metric}'] = float(cv_results[test_metric].mean())
-                scores[f'std_test_{metric}'] = float(cv_results[test_metric].std())
-                scores[f'scores_{metric}'] = cv_results[test_metric].tolist()
-        return scores
+            mean_key = f'mean_test_{metric}'
+            std_key = f'std_test_{metric}'
+            if mean_key in result:
+                metrics.append(
+                    f"{metric}: {result[mean_key]:.4f} ± {result[std_key]:.4f}"
+                )
+        return " | ".join(metrics)
 
-    def _encode_params(self, params_list: list[dict]) -> np.ndarray:
+    def _compute_best_metrics(self) -> str:
         """
-        Encodes a list of parameters into a numeric matrix.
-
-        Parameters:
-        -----------
-        params_list : list[dict]
-            List of parameters to encode.
+        Compute the best metric values across all valid results.
 
         Returns:
         --------
-        np.ndarray: Encoded parameters as a matrix.
+        str
+            Formatted string like "f1: 0.92 | accuracy: 0.95"
         """
-        if not params_list:
-            return np.array([]).reshape(0, -1)
+        valid_results = [r for r in self.result_manager.results if 'error' not in r]
+        if not valid_results:
+            return ""
 
-        df = pd.DataFrame(params_list)
-        X = df.copy()
-
-        for col in X.columns:
-            if X[col].dtype == 'object':
-                if col not in self.label_encoders:
-                    self.label_encoders[col] = LabelEncoder()
-                    X[col] = self.label_encoders[col].fit_transform(X[col].astype(str))
-                else:
-                    X[col] = self.label_encoders[col].transform(X[col].astype(str))
-            else:
-                X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0)
-
-        return X.values
-
-    def _suggest_next_params(
-        self,
-        all_param_combinations: list[dict],
-        completed_results: list[dict],
-    ) -> list[dict]:
-        """
-        Sorts remaining parameters by predicted metric (if Bayesian optimization is used).
-
-        Parameters:
-        -----------
-        all_param_combinations : list[dict]
-            All possible parameter combinations.
-        completed_results : list[dict]
-            Already completed results.
-
-        Returns:
-        --------
-        list[dict]: Sorted list of parameters.
-        """
-        if not self.use_bayesian_optimization or not completed_results:
-            return all_param_combinations
-
-        # Train the model on completed results
-        completed_params = [r['params'] for r in completed_results]
-        completed_scores = [r[f'mean_test_{self.scoring[0]}'] for r in completed_results]
-
-        X_train = self._encode_params(completed_params)
-        y_train = np.array(completed_scores)
-
-        if X_train.size == 0 or len(y_train) == 0:
-            return all_param_combinations
-
-        self.bayesian_optimizer.fit(X_train, y_train)
-
-        # Predict for remaining
-        X_remaining = self._encode_params(all_param_combinations)
-        if X_remaining.size == 0:
-            return all_param_combinations
-
-        predicted_scores = self.bayesian_optimizer.predict(X_remaining)
-
-        # Sort by descending predicted score
-        sorted_indices = np.argsort(predicted_scores)[::-1]
-        return [all_param_combinations[i] for i in sorted_indices]
+        best_metrics = []
+        for metric in self.scoring:
+            metric_key = f'mean_test_{metric}'
+            best_val = max(
+                r[metric_key] for r in valid_results
+                if metric_key in r
+            )
+            best_metrics.append(f"{metric}: {best_val:.4f}")
+        return " | ".join(best_metrics)
 
     def fit(self, X, y, groups=None):
         """
@@ -340,133 +255,132 @@ class HyperPhoenixCV(BaseEstimator):
         self : object
             Returns the instance.
         """
-        # Load progress
-        all_results = self._load_checkpoint()
+        # Load progress from checkpoint
+        checkpoint_results = self.checkpoint_manager.load()
+        self.result_manager.add_results(checkpoint_results)
 
-        # Generate all parameter combinations (exhaustive or random)
-        param_list = self._generate_param_list()
+        # Generate all parameter combinations
+        all_params = self.search_strategy.generate_parameters()
         if self.verbose:
-            print(f"Total combinations: {len(param_list)}")
+            print(f"Total combinations: {len(all_params)}")
 
         # Exclude already processed
-        completed_params = [r['params'] for r in all_results if 'params' in r]
-        remaining_params = [p for p in param_list if p not in completed_params]
+        completed_params = [r['params'] for r in checkpoint_results if 'params' in r]
+        remaining_params = [p for p in all_params if p not in completed_params]
         if self.verbose:
             print(f"Remaining to process: {len(remaining_params)}")
 
         # If Bayesian optimization is used, sort remaining parameters by prediction
         if self.use_bayesian_optimization:
-            remaining_params = self._suggest_next_params(remaining_params, all_results)
+            remaining_params = self.search_strategy.suggest_next(checkpoint_results)
             if self.verbose:
                 print("Remaining parameters sorted by predicted metric.")
 
-        # --- Determine CV ---
+        # Early stopping tracking
+        primary_metric = self.scoring[0]
+        best_score = -float('inf')
+        no_improvement_count = 0
 
-        if isinstance(self.cv, int):
-            classification_metrics = {
-                'accuracy', 'balanced_accuracy', 'f1', 'precision', 'recall',
-                'f1_macro', 'f1_micro', 'f1_weighted', 'precision_macro',
-                'precision_micro', 'precision_weighted', 'recall_macro',
-                'recall_micro', 'recall_weighted', 'jaccard', 'roc_auc'
-            }
-
-            if any(m in classification_metrics for m in self.scoring):
-                cv_splitter = StratifiedKFold(n_splits=self.cv, shuffle=True, random_state=42)
-            else:
-                cv_splitter = KFold(n_splits=self.cv, shuffle=True, random_state=42)
-        else:
-            cv_splitter = self.cv
-        # --- CV determined ---
+        # Determine current best score from checkpoint results
+        valid_checkpoint = [r for r in checkpoint_results if 'error' not in r]
+        if valid_checkpoint:
+            best_score = max(
+                r.get(f'mean_test_{primary_metric}', -float('inf'))
+                for r in valid_checkpoint
+            )
 
         # Iterate over remaining parameters
         for i, params in enumerate(remaining_params, start=1):
             if self.verbose:
                 print(f"\n[{i}/{len(remaining_params)}] Testing: {params}")
 
-            try:
-                estimator_with_params = self.estimator.set_params(**params)
+            result = self.cv_executor.evaluate(
+                estimator=self.estimator,
+                X=X,
+                y=y,
+                params=params,
+                groups=groups,
+            )
+            self.result_manager.add_result(result)
+            self.checkpoint_manager.save(self.result_manager.results)
 
-                scores = cross_validate(
-                    estimator_with_params, X, y,
-                    cv=cv_splitter,
-                    scoring=self.scoring,
-                    n_jobs=self.n_jobs
-                )
+            if self.verbose and 'error' not in result:
+                current_str = self._format_metric_string(result)
+                best_str = self._compute_best_metrics()
+                print(f"Saved. Current: {current_str} | Best: {best_str}")
 
-                result = {
-                    'params': params,
-                    **self._format_scores(scores)
-                }
-                all_results.append(result)
+            # Early stopping logic
+            if self.early_stopping_patience is not None:
+                if 'error' not in result:
+                    current_score = result.get(f'mean_test_{primary_metric}', -float('inf'))
+                    if current_score > best_score + 1e-9:  # improvement
+                        best_score = current_score
+                        no_improvement_count = 0
+                        if self.verbose:
+                            print(f"🎯 Improvement detected (new best: {best_score:.4f})")
+                    else:
+                        no_improvement_count += 1
+                        if self.verbose:
+                            print(f"⏳ No improvement ({no_improvement_count}/{self.early_stopping_patience})")
+                else:
+                    # Error counts as no improvement
+                    no_improvement_count += 1
 
-                # Update Bayesian optimization model if used
-                if self.use_bayesian_optimization:
-                    # Not necessary to update each time — can be done every N iterations
-                    pass  # Model is updated on the next call to _suggest_next_params
-
-                self._save_checkpoint(all_results)
-
-                if self.verbose:
-                    current_metrics = []
-                    for metric in self.scoring:
-                        mean_key = f'mean_test_{metric}'
-                        std_key = f'std_test_{metric}'
-                        if mean_key in result and std_key in result:
-                            current_metrics.append(
-                                f"{metric}: {result[mean_key]:.4f} ± {result[std_key]:.4f}"
-                            )
-                    current_str = " | ".join(current_metrics)
-
-                    metric_key = f'mean_test_{self.scoring[0]}'
-                    if metric_key in result:
-                        best_score = max(
-                            r[metric_key] for r in all_results if metric_key in r
-                        )
-                        best_metrics = []
-                        for metric in self.scoring:
-                            metric_key_other = f'mean_test_{metric}'
-                            if metric_key_other in result:
-                                best_other = max(
-                                    r[metric_key_other]
-                                    for r in all_results
-                                    if metric_key_other in r
-                                )
-                                best_metrics.append(f"{metric}: {best_other:.4f}")
-                        best_str = " | ".join(best_metrics)
-                        print(f"Saved. Current: {current_str} | Best: {best_str}")
-
-            except Exception as e:
-                if self.verbose:
-                    print(f"⚠️ Error: {e}")
-                all_results.append({
-                    'params': params,
-                    'error': str(e)
-                })
-                self._save_checkpoint(all_results)
+                if no_improvement_count >= self.early_stopping_patience:
+                    if self.verbose:
+                        print(f"🛑 Early stopping triggered after {i} iterations (no improvement for {self.early_stopping_patience} consecutive trials).")
+                    break
 
         # Save results to CSV
-        self._save_results_to_csv(all_results)
+        self.result_manager.save_to_csv()
 
-        # Save attributes for compatibility with GridSearchCV
-        self.cv_results_ = self._format_cv_results(all_results)
-        self.best_params_ = self._get_best_params(all_results)
-        self.best_score_ = self._get_best_score(all_results)
+        # Update attributes for compatibility with GridSearchCV
+        self.cv_results_ = self.result_manager.format_cv_results()
+        self._update_best_attributes()
 
-        self.best_estimator_ = self.estimator.set_params(**self.best_params_)
-        if self.refit:
+        # Refit the best estimator on the whole dataset
+        if self.refit and self.best_params_:
+            self.best_estimator_ = self.estimator.set_params(**self.best_params_)
             self.best_estimator_.fit(X, y)
 
         if self.verbose:
             print(f"\nAll results saved to {self.results_csv}")
             print(f"Best result ({self.scoring[0]}): {self.best_score_:.4f}")
             if self.random_search:
-                total_grid = len(list(ParameterGrid(self.param_grid)))
+                total_grid = len(all_params)
                 print(
                     f"Random search used: {self.n_iter} out of {total_grid} "
                     f"possible combinations ({self.n_iter/total_grid*100:.2f}%)"
                 )
 
         return self
+
+    def _update_best_attributes(self):
+        """Set best_params_, best_score_, and best_index_ from result_manager."""
+        valid_results = [r for r in self.result_manager.results if 'error' not in r]
+        if not valid_results:
+            self.best_params_ = {}
+            self.best_score_ = 0.0
+            self.best_index_ = None
+            return
+
+        # Sort by the first metric
+        scoring_key = f'mean_test_{self.scoring[0]}'
+        best_result = max(valid_results, key=lambda x: x.get(scoring_key, float('-inf')))
+        self.best_params_ = best_result['params']
+        self.best_score_ = best_result.get(scoring_key, 0.0)
+
+        # Find index in cv_results_['params']
+        if self.cv_results_ and 'params' in self.cv_results_:
+            params_list = self.cv_results_['params']
+            for idx, param_dict in enumerate(params_list):
+                if param_dict == self.best_params_:
+                    self.best_index_ = idx
+                    break
+            else:
+                self.best_index_ = None
+        else:
+            self.best_index_ = None
 
     def predict(self, X):
         """
@@ -521,112 +435,6 @@ class HyperPhoenixCV(BaseEstimator):
         check_is_fitted(self, 'best_estimator_')
         return self.best_estimator_.score(X, y)
 
-    def _format_cv_results(self, results: list[dict]) -> dict[str, np.ndarray]:
-        """
-        Formats results into a GridSearchCV-compatible format.
-
-        Parameters:
-        -----------
-        results : list[dict]
-            List of results.
-
-        Returns:
-        --------
-        dict[str, np.ndarray]: Formatted results.
-        """
-        valid_results = [r for r in results if 'error' not in r]
-        if not valid_results:
-            return {}
-
-        # Create a dictionary with results
-        cv_results = {'params': [r['params'] for r in valid_results]}
-
-        for metric in self.scoring:
-            mean_key = f'mean_test_{metric}'
-            std_key = f'std_test_{metric}'
-
-            cv_results[mean_key] = np.array([r[mean_key] for r in valid_results])
-            cv_results[std_key] = np.array([r[std_key] for r in valid_results])
-
-        return cv_results
-
-    def _get_best_params(self, results: list[dict]) -> dict:
-        """
-        Retrieves the best parameters.
-
-        Parameters:
-        -----------
-        results : list[dict]
-            List of results.
-
-        Returns:
-        --------
-        dict: Best parameters.
-        """
-        valid_results = [r for r in results if 'error' not in r]
-        if not valid_results:
-            return {}
-
-        # Sort by the first metric
-        best_result = max(valid_results,
-                         key=lambda x: x[f'mean_test_{self.scoring[0]}'])
-        return best_result['params']
-
-    def _get_best_score(self, results: list[dict]) -> float:
-        """
-        Retrieves the best score.
-
-        Parameters:
-        -----------
-        results : list[dict]
-            List of results.
-
-        Returns:
-        --------
-        float: Best score.
-        """
-        valid_results = [r for r in results if 'error' not in r]
-        if not valid_results:
-            return 0.0
-
-        best_result = max(valid_results,
-                         key=lambda x: x[f'mean_test_{self.scoring[0]}'])
-        return best_result[f'mean_test_{self.scoring[0]}']
-
-    def _save_results_to_csv(self, results: list[dict]):
-        """
-        Saves results to CSV.
-
-        Parameters:
-        -----------
-        results : list[dict]
-            List of results to save.
-        """
-        valid_results = [r for r in results if 'error' not in r]
-        if not valid_results:
-            df = pd.DataFrame(columns=['params'])
-            df.to_csv(self.results_csv, index=False)
-            return
-
-        # Build DataFrame
-        rows = []
-        for r in valid_results:
-            row = {}
-            # Add parameters as separate columns
-            row.update(r['params'])
-            # Add metrics
-            for metric in self.scoring:
-                mean_key = f'mean_test_{metric}'
-                std_key = f'std_test_{metric}'
-                if mean_key in r:
-                    row[mean_key] = r[mean_key]
-                if std_key in r:
-                    row[std_key] = r[std_key]
-            rows.append(row)
-
-        df = pd.DataFrame(rows)
-        df.to_csv(self.results_csv, index=False)
-
     def get_top_results(self, n: int = 10) -> pd.DataFrame:
         """
         Returns top‑N results.
@@ -640,32 +448,13 @@ class HyperPhoenixCV(BaseEstimator):
         --------
         pd.DataFrame: Top‑N results.
         """
-        if not hasattr(self, 'cv_results_') or not self.cv_results_:
-            return pd.DataFrame()
-
-        # Create DataFrame from results
-        results = []
-        for i in range(len(self.cv_results_['params'])):
-            row = {}
-            row.update(self.cv_results_['params'][i])
-            for metric in self.scoring:
-                row[f'mean_test_{metric}'] = self.cv_results_[f'mean_test_{metric}'][i]
-                row[f'std_test_{metric}'] = self.cv_results_[f'std_test_{metric}'][i]
-            results.append(row)
-
-        df = pd.DataFrame(results)
-        # Sort by the first metric
-        df = df.sort_values(f'mean_test_{self.scoring[0]}', ascending=False)
-        return df.head(n)
+        return self.result_manager.get_top_results(n)
 
     def clear_checkpoint(self):
         """
         Deletes the checkpoint file.
         """
-        if os.path.exists(self.checkpoint_path):
-            os.remove(self.checkpoint_path)
-            if self.verbose:
-                print(f"Deleted checkpoint: {self.checkpoint_path}")
+        self.checkpoint_manager.clear()
 
     def load_results_from_checkpoint(self, n: int = 10) -> pd.DataFrame:
         """
@@ -682,43 +471,26 @@ class HyperPhoenixCV(BaseEstimator):
         pd.DataFrame
             Top‑N results from the checkpoint
         """
-        if not os.path.exists(self.checkpoint_path):
-            if self.verbose:
-                print(f"⚠️ Checkpoint {self.checkpoint_path} not found.")
-            return pd.DataFrame()
+        # Load checkpoint directly (bypassing result_manager)
+        checkpoint_results = self.checkpoint_manager.load()
+        # Create a temporary ResultManager to format results
+        temp_manager = ResultManager(scoring=self.scoring)
+        temp_manager.add_results(checkpoint_results)
+        return temp_manager.get_top_results(n)
+    def _load_checkpoint(self):
+        """
+        Private method for backward compatibility.
+        Returns the list of results from the checkpoint.
+        """
+        return self.checkpoint_manager.load()
 
-        # Load results from checkpoint
-        all_results = self._load_checkpoint()
-        valid_results = [r for r in all_results if 'error' not in r]
+    def _save_checkpoint(self, results):
+        """
+        Private method for backward compatibility.
+        Saves results to checkpoint.
+        """
+        self.checkpoint_manager.save(results)
 
-        if not valid_results:
-            if self.verbose:
-                print("⚠️ No valid results in checkpoint.")
-            return pd.DataFrame()
 
-        # Build DataFrame
-        rows = []
-        for r in valid_results:
-            row = {}
-            # Add parameters as separate columns
-            row.update(r['params'])
-            # Add metrics
-            for metric in self.scoring:
-                mean_key = f'mean_test_{metric}'
-                std_key = f'std_test_{metric}'
-                if mean_key in r:
-                    row[mean_key] = r[mean_key]
-                if std_key in r:
-                    row[std_key] = r[std_key]
-            rows.append(row)
 
-        df = pd.DataFrame(rows)
 
-        # Sort by the first metric (the one we optimize for)
-        df = df.sort_values(f'mean_test_{self.scoring[0]}', ascending=False)
-
-        if self.verbose:
-            print(f"Loaded {len(df)} valid results from checkpoint.")
-            print(f"Best {self.scoring[0]}: {df.iloc[0][f'mean_test_{self.scoring[0]}']:.4f}")
-
-        return df.head(n)

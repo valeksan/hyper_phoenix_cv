@@ -42,13 +42,19 @@ def test_hyperphoenixcv_initialization(sample_pipeline, sample_param_grid):
         n_jobs=1,
         checkpoint_path="test_checkpoint.pkl",
         results_csv="test_results.csv",
-        verbose=False
+        verbose=False,
+        pre_dispatch='n_jobs',
+        error_score=np.nan,
+        early_stopping_patience=5
     )
     assert hp.estimator == sample_pipeline
     assert hp.param_grid == sample_param_grid
     assert hp.scoring == ['accuracy']
     assert hp.cv == 2
     assert hp.n_jobs == 1
+    assert hp.pre_dispatch == 'n_jobs'
+    assert np.isnan(hp.error_score)
+    assert hp.early_stopping_patience == 5
     assert os.path.exists("test_checkpoint.pkl") is False  # Checkpoint is not created on initialization
     os.remove("test_checkpoint.pkl") if os.path.exists("test_checkpoint.pkl") else None
     os.remove("test_results.csv") if os.path.exists("test_results.csv") else None
@@ -77,6 +83,11 @@ def test_hyperphoenixcv_full_grid_search(sample_data, sample_pipeline, sample_pa
     # Verify presence of best parameters and scores
     assert hp.best_params_ is not None
     assert hp.best_score_ > 0
+    # Verify best_index_ attribute
+    assert hp.best_index_ is not None
+    assert 0 <= hp.best_index_ < total_combinations
+    # Ensure best_index_ matches best_params_ in cv_results_
+    assert hp.cv_results_['params'][hp.best_index_] == hp.best_params_
     
     # Verify existence of result files
     assert os.path.exists("test_checkpoint.pkl")
@@ -316,3 +327,35 @@ def test_hyperphoenixcv_final_fit(sample_data, sample_pipeline, sample_param_gri
     # Verify predictions
     predictions = hp.best_estimator_.predict(X)
     assert len(predictions) == len(y)
+
+
+def test_hyperphoenixcv_early_stopping(sample_data, sample_pipeline, sample_param_grid):
+    """Tests early stopping functionality."""
+    X, y = sample_data
+    
+    # Use random search with small n_iter and early_stopping_patience
+    hp = HyperPhoenixCV(
+        estimator=sample_pipeline,
+        param_grid=sample_param_grid,
+        scoring='accuracy',
+        cv=2,
+        n_jobs=1,
+        random_search=True,
+        n_iter=10,
+        early_stopping_patience=2,
+        checkpoint_path="early_stop_checkpoint.pkl",
+        results_csv="early_stop_results.csv",
+        verbose=False
+    )
+    
+    hp.fit(X, y)
+    
+    # Early stopping may cause fewer than n_iter evaluations
+    # We just verify that the attribute is set and no errors
+    assert hp.early_stopping_patience == 2
+    # Ensure results exist
+    assert len(hp.cv_results_['params']) > 0
+    
+    # Cleanup
+    os.remove("early_stop_checkpoint.pkl") if os.path.exists("early_stop_checkpoint.pkl") else None
+    os.remove("early_stop_results.csv") if os.path.exists("early_stop_results.csv") else None

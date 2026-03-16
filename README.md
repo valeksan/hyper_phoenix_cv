@@ -154,6 +154,36 @@ hp = HyperPhoenixCV(
 )
 ```
 
+### Custom Cross‑Validation Splitter
+
+HyperPhoenixCV supports any cross‑validation splitter that follows the scikit‑learn interface (e.g., `TimeSeriesSplit`, `GroupKFold`, `StratifiedKFold`). You can pass a splitter object directly to the `cv` parameter:
+
+```python
+from sklearn.model_selection import TimeSeriesSplit, GroupKFold
+
+# Time‑series cross‑validation
+ts_cv = TimeSeriesSplit(n_splits=5)
+hp = HyperPhoenixCV(
+    estimator=model,
+    param_grid=param_grid,
+    cv=ts_cv,          # Use the splitter object
+    scoring='accuracy'
+)
+
+# Group‑aware cross‑validation
+group_cv = GroupKFold(n_splits=5)
+hp = HyperPhoenixCV(
+    estimator=model,
+    param_grid=param_grid,
+    cv=group_cv,
+    scoring='accuracy'
+)
+# Then call fit with groups parameter
+hp.fit(X, y, groups=groups)
+```
+
+See the full example: [examples/custom_cv_example.py](examples/custom_cv_example.py)
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

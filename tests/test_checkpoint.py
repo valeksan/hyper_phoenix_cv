@@ -1,0 +1,81 @@
+"""
+Unit tests for CheckpointManager.
+"""
+
+import os
+import tempfile
+import joblib
+import pytest
+
+from src.hyperphoenixcv.checkpoint import CheckpointManager
+
+
+class TestCheckpointManager:
+    """Test CheckpointManager."""
+
+    @pytest.fixture
+    def temp_file(self):
+        with tempfile.NamedTemporaryFile(suffix='.pkl', delete=False) as f:
+            path = f.name
+        yield path
+        if os.path.exists(path):
+            os.unlink(path)
+
+    @pytest.fixture
+    def sample_results(self):
+        return [
+            {'params': {'a': 1}, 'mean_test_f1': 0.8},
+            {'params': {'a': 2}, 'mean_test_f1': 0.9},
+        ]
+
+    def test_load_no_file(self, temp_file):
+        # Ensure file does not exist
+        if os.path.exists(temp_file):
+            os.unlink(temp_file)
+        manager = CheckpointManager(temp_file, verbose=False)
+        results = manager.load()
+        assert results == []
+
+    def test_save_and_load(self, temp_file, sample_results):
+        manager = CheckpointManager(temp_file, verbose=False)
+        manager.save(sample_results)
+        assert os.path.exists(temp_file)
+        loaded = manager.load()
+        assert loaded == sample_results
+
+    def test_save_overwrite(self, temp_file, sample_results):
+        manager = CheckpointManager(temp_file, verbose=False)
+        manager.save(sample_results)
+        new_results = [{'params': {'b': 3}}]
+        manager.save(new_results)
+        loaded = manager.load()
+        assert loaded == new_results
+
+    def test_clear_existing(self, temp_file, sample_results):
+        manager = CheckpointManager(temp_file, verbose=False)
+        manager.save(sample_results)
+        assert os.path.exists(temp_file)
+        manager.clear()
+        assert not os.path.exists(temp_file)
+
+    def test_clear_nonexistent(self, temp_file):
+        if os.path.exists(temp_file):
+            os.unlink(temp_file)
+        manager = CheckpointManager(temp_file, verbose=False)
+        # Should not raise an error
+        manager.clear()
+        assert not os.path.exists(temp_file)
+
+    def test_verbose(self, temp_file, sample_results, capsys):
+        manager = CheckpointManager(temp_file, verbose=True)
+        manager.save(sample_results)
+        out, _ = capsys.readouterr()
+        assert "Checkpoint saved" in out
+
+        manager.load()
+        out, _ = capsys.readouterr()
+        assert "Loaded" in out
+
+        manager.clear()
+        out, _ = capsys.readouterr()
+        assert "Deleted checkpoint" in out or "does not exist" in out
